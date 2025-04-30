@@ -2,25 +2,13 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const jwt = require('jsonwebtoken');
-const multer = require('multer');
-const path = require('path');
 
-// In production, store your secret in an environment variable
+// Parse JSON bodies for all routes in this router
+// Parse JSON bodies (increase limit for Base64 images)
+router.use(express.json({ limit: '5mb' }));
+
+// JWT secret
 const secret = process.env.JWT_SECRET || 'your_secret_key';
-
-// Configure Multer for image uploads
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, '../public/uploads'));
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const ext = path.extname(file.originalname);
-        cb(null, file.fieldname + '-' + uniqueSuffix + ext);
-    }
-});
-
-const upload = multer({ storage });
 
 // Middleware to verify admin access
 function verifyAdmin(req, res, next) {
@@ -36,64 +24,58 @@ function verifyAdmin(req, res, next) {
         if (err) {
             return res.status(401).json({ error: 'Failed to authenticate token.' });
         }
+        if (decoded.role !== 'admin') {
+            return res.status(403).json({ error: 'Admin access required.' });
+        }
         req.user = decoded;
         next();
     });
 }
 
-// GET /api/admin/products - Retrieve all products (for admin view)
+// GET /api/admin/products - Retrieve all products
 router.get('/admin/products', verifyAdmin, async (req, res) => {
     try {
         const { rows } = await db.execute('SELECT * FROM Products');
         res.json(rows);
     } catch (err) {
-        console.error(err);
+        console.error('DB error fetching products:', err);
         res.status(500).json({ error: 'Database error.' });
     }
 });
 
-// POST /api/admin/products - Add a new product
-router.post('/admin/products', verifyAdmin, upload.single('image'), async (req, res) => {
-    const { name, description, price, stock } = req.body;
-    if (!name || !price || !stock) {
+// POST /api/admin/products - Add a new product (expects JSON with Base64 image)
+router.post('/admin/products', verifyAdmin, async (req, res) => {
+    const { name, description, price, stock, imagePath } = req.body;
+    if (!name || price == null || stock == null) {
         return res.status(400).json({ error: 'Missing required fields.' });
     }
-    const imagePath = req.file ? 'uploads/' + req.file.filename : null;
     try {
         await db.execute(
             'INSERT INTO Products (name, description, price, stock, imagePath) VALUES (?, ?, ?, ?, ?)',
-            [name, description, price, stock, imagePath]
+            [name, description || null, price, stock, imagePath || null]
         );
         res.json({ message: 'Product added successfully.' });
     } catch (err) {
-        console.error(err);
+        console.error('DB error adding product:', err);
         res.status(500).json({ error: 'Database error.' });
     }
 });
 
-// PUT /api/admin/products/:id - Update a product
-router.put('/admin/products/:id', verifyAdmin, upload.single('image'), async (req, res) => {
+// PUT /api/admin/products/:id - Update an existing product
+router.put('/admin/products/:id', verifyAdmin, async (req, res) => {
     const productId = req.params.id;
-    const { name, description, price, stock } = req.body;
-    let imagePath;
-    if (req.file) {
-        imagePath = 'uploads/' + req.file.filename;
+    const { name, description, price, stock, imagePath } = req.body;
+    if (!name || price == null || stock == null) {
+        return res.status(400).json({ error: 'Missing required fields.' });
     }
     try {
-        if (imagePath) {
-            await db.execute(
-                'UPDATE Products SET name = ?, description = ?, price = ?, stock = ?, imagePath = ? WHERE id = ?',
-                [name, description, price, stock, imagePath, productId]
-            );
-        } else {
-            await db.execute(
-                'UPDATE Products SET name = ?, description = ?, price = ?, stock = ? WHERE id = ?',
-                [name, description, price, stock, productId]
-            );
-        }
+        await db.execute(
+            'UPDATE Products SET name = ?, description = ?, price = ?, stock = ?, imagePath = ? WHERE id = ?',
+            [name, description || null, price, stock, imagePath || null, productId]
+        );
         res.json({ message: 'Product updated successfully.' });
     } catch (err) {
-        console.error(err);
+        console.error('DB error updating product:', err);
         res.status(500).json({ error: 'Database error.' });
     }
 });
@@ -105,18 +87,12 @@ router.delete('/admin/products/:id', verifyAdmin, async (req, res) => {
         await db.execute('DELETE FROM Products WHERE id = ?', [productId]);
         res.json({ message: 'Product deleted successfully.' });
     } catch (err) {
-        console.error(err);
+        console.error('DB error deleting product:', err);
         res.status(500).json({ error: 'Database error.' });
     }
 });
 
 module.exports = router;
-
-
-
-
-
-
 
 
 
