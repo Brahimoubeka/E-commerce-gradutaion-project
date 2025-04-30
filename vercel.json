@@ -7,12 +7,10 @@
     }
   ],
   "routes": [
-    // All API calls go to your Express app
     {
       "src": "/api/(.*)",
       "dest": "server.js"
     },
-    // Everything else serves your static front-end
     {
       "src": "/(.*)",
       "dest": "/public/$1"
